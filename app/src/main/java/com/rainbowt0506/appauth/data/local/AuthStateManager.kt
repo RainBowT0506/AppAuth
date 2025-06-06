@@ -1,4 +1,4 @@
-package com.rainbowt0506.appauth
+package com.rainbowt0506.appauth.data.local
 
 import android.annotation.SuppressLint
 import android.content.Context

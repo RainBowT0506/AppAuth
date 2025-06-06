@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -25,7 +26,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import com.rainbowt0506.appauth.model.Resource
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import net.openid.appauth.AuthState
@@ -39,149 +43,62 @@ import net.openid.appauth.ResponseTypeValues
 
 class MainActivity : ComponentActivity() {
 
-    private lateinit var authService: AuthorizationService
-    private lateinit var authStateManager: AuthStateManager
-
-    private val clientId = ""
-    private val redirectUri = Uri.parse("")
-    private val authEndpoint = Uri.parse("")
-    private val tokenEndpoint = Uri.parse("")
-
-
-    // 更新 UI 的 callback
-    private var updateToken: ((String?) -> Unit)? = null
-    private var updateExpiresIn: ((Long?) -> Unit)? = null
+    private lateinit var viewModel: AuthViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        authService = AuthorizationService(this)
-        authStateManager = AuthStateManager.getInstance(this)
+        viewModel = ViewModelProvider(
+            this,
+            ViewModelProvider.AndroidViewModelFactory.getInstance(application)
+        )[AuthViewModel::class.java]
+
+        val authLauncher =
+            registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+                viewModel.handleAuthIntent(result.data)
+            }
 
         setContent {
-            var accessToken by remember { mutableStateOf<String?>(null) }
-            var expiresIn by remember { mutableStateOf<Long?>(null) }
+            val tokenState by viewModel.tokenState.collectAsStateWithLifecycle()
+            val expiresAt by viewModel.expiresIn.collectAsStateWithLifecycle()
 
-            // 將 UI 狀態綁定給外部 callback
-            updateToken = { accessToken = it }
-            updateExpiresIn = { expiresIn = it }
 
-            // 初始化 token 與過期時間
-            LaunchedEffect(Unit) {
-                val state = authStateManager.current
-                if (state.isAuthorized) {
-                    updateTokenUI(state)
+            LaunchedEffect(tokenState) {
+                when(tokenState){
+                    is Resource.Loading ->{
+
+                    }
+                    is Resource.Success -> {
+                        Log.d("MainActivity", "Access Token: ${(tokenState as Resource.Success).data}")
+                    }
+                    is Resource.Error -> {
+                        Log.e("MainActivity", "Error: ${(tokenState as Resource.Error).message}")
+                        Toast.makeText(this@MainActivity, "Error: ${(tokenState as Resource.Error).message}", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
 
-            // 每秒倒數更新剩餘秒數
-            LaunchedEffect(expiresIn) {
-                while (expiresIn != null && expiresIn!! > 0) {
-                    delay(1000)
-                    expiresIn = expiresIn?.minus(1)
+            var remainingSeconds by remember { mutableStateOf<Long?>(null) }
+            LaunchedEffect(expiresAt) {
+                remainingSeconds = expiresAt?.let { (it - System.currentTimeMillis()) / 1000 }
+                while (remainingSeconds != null && remainingSeconds!! > 0) {
+                    delay(1_000)
+                    remainingSeconds = remainingSeconds?.minus(1)
                 }
             }
 
             MainContent(
-                accessToken = accessToken,
-                expiresIn = expiresIn,
-                onLoginClick = { startAuthFlow() },
-                onRefreshClick = { refreshAccessToken() },
+                accessToken = tokenState.data,
+                expiresIn = remainingSeconds,
+                onLoginClick  = { authLauncher.launch(viewModel.createAuthIntent()) },
+                onRefreshClick = { viewModel.refreshAccessToken() },
                 onCheckExpiryClick = {
-                    val isExpired = authStateManager.current.needsTokenRefresh
-                    val msg = if (isExpired) "Access Token 已過期" else "Access Token 尚未過期"
-                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
+                    val msg = if (remainingSeconds != null && remainingSeconds!! > 0)
+                        "Access Token 尚未過期" else "Access Token 已過期"
+                    Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
                 }
             )
-
         }
     }
-
-
-
-    private fun startAuthFlow() {
-        val serviceConfig = AuthorizationServiceConfiguration(authEndpoint, tokenEndpoint)
-
-        val authRequest = AuthorizationRequest.Builder(
-            serviceConfig,
-            clientId,
-            ResponseTypeValues.CODE,
-            redirectUri
-        ).setScopes("openid", "email", "profile", "https://www.googleapis.com/auth/youtube")
-
-            .build()
-
-        val intent = authService.getAuthorizationRequestIntent(authRequest)
-        startActivityForResult(intent, 1234)
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-
-        if (requestCode == 1234) {
-            val resp = AuthorizationResponse.fromIntent(data!!)
-            val ex = AuthorizationException.fromIntent(data)
-
-            if (resp != null) {
-                val tokenRequest = resp.createTokenExchangeRequest()
-                authService.performTokenRequest(tokenRequest) { response, exception ->
-                    if (response != null) {
-                        val token = response.accessToken
-
-                        // 儲存 AuthState 到 DataStore
-                        lifecycleScope.launch {
-                            authStateManager.updateAfterAuthorization(resp, ex)
-                            authStateManager.updateAfterTokenResponse(response, exception)
-
-                            // 顯示在畫面上
-                            updateTokenUI(authStateManager.current)
-                        }
-
-                    } else {
-                        Log.e("Auth", "Token exchange failed", exception)
-                    }
-                }
-            } else {
-                Log.e("Auth", "Authorization failed", ex)
-            }
-        }
-    }
-
-    private fun updateTokenUI(state: AuthState) {
-        val token = state.accessToken
-        val expiresAt = state.accessTokenExpirationTime
-        updateToken?.invoke(token)
-        updateExpiresIn?.invoke(
-            expiresAt?.let { (it - System.currentTimeMillis()) / 1000 }
-        )
-    }
-
-    private fun refreshAccessToken() {
-        val state = authStateManager.current
-
-        if (!state.isAuthorized) {
-            Log.w("Auth", "User is not authorized")
-            return
-        }
-
-        // 使用 AppAuth 自帶的刷新機制
-        state.performActionWithFreshTokens(authService) { accessToken, idToken, ex ->
-            if (ex != null) {
-                Log.e("Auth", "Token refresh failed", ex)
-                return@performActionWithFreshTokens
-            }
-
-            if (accessToken != null) {
-                Log.d("Auth", "Token refreshed: $accessToken")
-
-                // 同步儲存最新的 AuthState
-                lifecycleScope.launch {
-                    authStateManager.replace(state)
-                    updateTokenUI(state)
-                }
-            }
-        }
-    }
-
 }
 
 @Composable
