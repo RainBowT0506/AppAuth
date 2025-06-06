@@ -44,7 +44,7 @@ class MainActivity : ComponentActivity() {
     private val clientId = ""
     private val redirectUri = Uri.parse("")
     private val authEndpoint = Uri.parse("")
-    private val tokenEndpoint = Uri.parse(""
+    private val tokenEndpoint = Uri.parse("")
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
