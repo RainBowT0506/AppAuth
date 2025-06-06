@@ -60,5 +60,5 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
     implementation("net.openid:appauth:0.11.1")
-
+    implementation("androidx.datastore:datastore-preferences:1.1.0")
 }
