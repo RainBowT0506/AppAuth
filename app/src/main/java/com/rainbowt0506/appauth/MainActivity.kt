@@ -53,7 +53,6 @@ class MainActivity : ComponentActivity() {
         authStateManager = AuthStateManager.getInstance(this)
 
         setContent {
-            val context = this
             var accessToken by remember { mutableStateOf<String?>(null) }
             var expiresIn by remember { mutableStateOf<Long?>(null) }
 
@@ -78,49 +77,18 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.Center
-            ) {
-                Button(onClick = { startAuthFlow() }) {
-                    Text("Login with OAuth")
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                accessToken?.let {
-                    Text("Access Token:\n$it")
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // 顯示倒數秒數
-                expiresIn?.let {
-                    Text("Token expires in: ${it}s")
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // 按下按鈕檢查是否過期
-                Button(onClick = {
+            MainContent(
+                accessToken = accessToken,
+                expiresIn = expiresIn,
+                onLoginClick = { startAuthFlow() },
+                onRefreshClick = { refreshAccessToken() },
+                onCheckExpiryClick = {
                     val isExpired = authStateManager.current.needsTokenRefresh
                     val msg = if (isExpired) "Access Token 已過期" else "Access Token 尚未過期"
-                    Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT)
-                        .show()
-                }) {
-                    Text("Check Token Expiry")
+                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
                 }
+            )
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // 刷新 access token
-                Button(onClick = { refreshAccessToken() }) {
-                    Text("Refresh Access Token")
-                }
-            }
         }
     }
 
@@ -212,5 +180,50 @@ class MainActivity : ComponentActivity() {
     }
 
 }
+
+@Composable
+fun MainContent(
+    accessToken: String?,
+    expiresIn: Long?,
+    onLoginClick: () -> Unit,
+    onRefreshClick: () -> Unit,
+    onCheckExpiryClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.Center
+    ) {
+        Button(onClick = onLoginClick) {
+            Text("Login with OAuth")
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        accessToken?.let {
+            Text("Access Token:\n$it")
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        expiresIn?.let {
+            Text("Token expires in: ${it}s")
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Button(onClick = onCheckExpiryClick) {
+            Text("Check Token Expiry")
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Button(onClick = onRefreshClick) {
+            Text("Refresh Access Token")
+        }
+    }
+}
+
 
 
