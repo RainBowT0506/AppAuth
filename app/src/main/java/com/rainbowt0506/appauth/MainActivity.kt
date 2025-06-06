@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import net.openid.appauth.AuthState
 import net.openid.appauth.AuthorizationException
@@ -47,6 +48,10 @@ class MainActivity : ComponentActivity() {
     private val tokenEndpoint = Uri.parse("")
 
 
+    // 更新 UI 的 callback
+    private var updateToken: ((String?) -> Unit)? = null
+    private var updateExpiresIn: ((Long?) -> Unit)? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         authService = AuthorizationService(this)
@@ -56,23 +61,22 @@ class MainActivity : ComponentActivity() {
             var accessToken by remember { mutableStateOf<String?>(null) }
             var expiresIn by remember { mutableStateOf<Long?>(null) }
 
+            // 將 UI 狀態綁定給外部 callback
+            updateToken = { accessToken = it }
+            updateExpiresIn = { expiresIn = it }
+
             // 初始化 token 與過期時間
             LaunchedEffect(Unit) {
                 val state = authStateManager.current
                 if (state.isAuthorized) {
-                    accessToken = state.accessToken
-                    val expiresAt = state.accessTokenExpirationTime
-                    expiresAt?.let {
-                        expiresIn = (it - System.currentTimeMillis()) / 1000
-                    }
-                    Log.d("Auth", "Loaded saved token: $accessToken")
+                    updateTokenUI(state)
                 }
             }
 
             // 每秒倒數更新剩餘秒數
             LaunchedEffect(expiresIn) {
                 while (expiresIn != null && expiresIn!! > 0) {
-                    kotlinx.coroutines.delay(1000)
+                    delay(1000)
                     expiresIn = expiresIn?.minus(1)
                 }
             }
@@ -91,6 +95,8 @@ class MainActivity : ComponentActivity() {
 
         }
     }
+
+
 
     private fun startAuthFlow() {
         val serviceConfig = AuthorizationServiceConfiguration(authEndpoint, tokenEndpoint)
@@ -126,21 +132,8 @@ class MainActivity : ComponentActivity() {
                             authStateManager.updateAfterAuthorization(resp, ex)
                             authStateManager.updateAfterTokenResponse(response, exception)
 
-                            val savedToken = authStateManager.current.accessToken
-
                             // 顯示在畫面上
-                            runOnUiThread {
-                                setContent {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .padding(16.dp),
-                                        verticalArrangement = Arrangement.Center
-                                    ) {
-                                        Text("Access Token:\n$savedToken")
-                                    }
-                                }
-                            }
+                            updateTokenUI(authStateManager.current)
                         }
 
                     } else {
@@ -151,6 +144,15 @@ class MainActivity : ComponentActivity() {
                 Log.e("Auth", "Authorization failed", ex)
             }
         }
+    }
+
+    private fun updateTokenUI(state: AuthState) {
+        val token = state.accessToken
+        val expiresAt = state.accessTokenExpirationTime
+        updateToken?.invoke(token)
+        updateExpiresIn?.invoke(
+            expiresAt?.let { (it - System.currentTimeMillis()) / 1000 }
+        )
     }
 
     private fun refreshAccessToken() {
@@ -174,6 +176,7 @@ class MainActivity : ComponentActivity() {
                 // 同步儲存最新的 AuthState
                 lifecycleScope.launch {
                     authStateManager.replace(state)
+                    updateTokenUI(state)
                 }
             }
         }
