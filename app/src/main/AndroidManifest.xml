@@ -33,7 +33,7 @@
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data
-                    android:scheme="${appAuthRedirectScheme}"
+                    android:scheme="com.rainbowt0506.appauth"
                     android:host="oauthredirect"/>
 
             </intent-filter>
