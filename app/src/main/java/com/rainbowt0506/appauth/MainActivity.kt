@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -43,7 +44,7 @@ class MainActivity : ComponentActivity() {
     private val clientId = ""
     private val redirectUri = Uri.parse("")
     private val authEndpoint = Uri.parse("")
-    private val tokenEndpoint = Uri.parse("")
+    private val tokenEndpoint = Uri.parse(""
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,15 +53,31 @@ class MainActivity : ComponentActivity() {
         authStateManager = AuthStateManager.getInstance(this)
 
         setContent {
+            val context = this
             var accessToken by remember { mutableStateOf<String?>(null) }
+            var expiresIn by remember { mutableStateOf<Long?>(null) }
 
+            // 初始化 token 與過期時間
             LaunchedEffect(Unit) {
                 val state = authStateManager.current
-                if (state.isAuthorized && !state.needsTokenRefresh) {
+                if (state.isAuthorized) {
                     accessToken = state.accessToken
+                    val expiresAt = state.accessTokenExpirationTime
+                    expiresAt?.let {
+                        expiresIn = (it - System.currentTimeMillis()) / 1000
+                    }
                     Log.d("Auth", "Loaded saved token: $accessToken")
                 }
             }
+
+            // 每秒倒數更新剩餘秒數
+            LaunchedEffect(expiresIn) {
+                while (expiresIn != null && expiresIn!! > 0) {
+                    kotlinx.coroutines.delay(1000)
+                    expiresIn = expiresIn?.minus(1)
+                }
+            }
+
 
             Column(
                 modifier = Modifier
@@ -76,6 +93,32 @@ class MainActivity : ComponentActivity() {
 
                 accessToken?.let {
                     Text("Access Token:\n$it")
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // 顯示倒數秒數
+                expiresIn?.let {
+                    Text("Token expires in: ${it}s")
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // 按下按鈕檢查是否過期
+                Button(onClick = {
+                    val isExpired = authStateManager.current.needsTokenRefresh
+                    val msg = if (isExpired) "Access Token 已過期" else "Access Token 尚未過期"
+                    Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT)
+                        .show()
+                }) {
+                    Text("Check Token Expiry")
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // 刷新 access token
+                Button(onClick = { refreshAccessToken() }) {
+                    Text("Refresh Access Token")
                 }
             }
         }
@@ -138,6 +181,32 @@ class MainActivity : ComponentActivity() {
                 }
             } else {
                 Log.e("Auth", "Authorization failed", ex)
+            }
+        }
+    }
+
+    private fun refreshAccessToken() {
+        val state = authStateManager.current
+
+        if (!state.isAuthorized) {
+            Log.w("Auth", "User is not authorized")
+            return
+        }
+
+        // 使用 AppAuth 自帶的刷新機制
+        state.performActionWithFreshTokens(authService) { accessToken, idToken, ex ->
+            if (ex != null) {
+                Log.e("Auth", "Token refresh failed", ex)
+                return@performActionWithFreshTokens
+            }
+
+            if (accessToken != null) {
+                Log.d("Auth", "Token refreshed: $accessToken")
+
+                // 同步儲存最新的 AuthState
+                lifecycleScope.launch {
+                    authStateManager.replace(state)
+                }
             }
         }
     }
