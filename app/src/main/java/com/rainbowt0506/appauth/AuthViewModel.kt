@@ -1,21 +1,23 @@
 package com.rainbowt0506.appauth
 
-import android.content.Context
 
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
-import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.rainbowt0506.appauth.data.local.AuthStateManager
 import com.rainbowt0506.appauth.model.Resource
 import kotlinx.coroutines.launch
-import net.openid.appauth.*
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import net.openid.appauth.AuthorizationException
+import net.openid.appauth.AuthorizationRequest
+import net.openid.appauth.AuthorizationResponse
+import net.openid.appauth.AuthorizationService
+import net.openid.appauth.AuthorizationServiceConfiguration
+import net.openid.appauth.ResponseTypeValues
 
 class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
